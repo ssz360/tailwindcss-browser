@@ -1,9 +1,11 @@
 import { defineConfig } from 'tsup'
 
 export default defineConfig({
-  format: ['iife'],
+  format: ['esm', 'cjs'],
   clean: true,
   minify: true,
+  sourcemap: true,
+  dts: true,
   entry: ['src/index.ts'],
   noExternal: [/.*/],
   loader: {

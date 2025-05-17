@@ -2,5 +2,14 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["es2022", "esnext.disposable", "dom", "dom.iterable"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "declaration": true,
+    "declarationDir": "dist/types",
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
   },
+  "include": ["src"]
 }

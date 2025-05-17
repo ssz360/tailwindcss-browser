@@ -9,11 +9,6 @@ console.warn(
 )
 
 /**
- * The type used by `<style>` tags that contain input CSS.
- */
-const STYLE_TYPE = 'text/tailwindcss'
-
-/**
  * The current Tailwind CSS compiler.
  *
  * This gets recreated:
@@ -33,16 +28,12 @@ let classes = new Set<string>()
  */
 let lastCss = ''
 
-/**
- * The stylesheet that we use to inject the compiled CSS into the page.
- */
-let sheet = document.createElement('style')
 
 /**
  * The queue of build tasks that need to be run. This is used to ensure that we
  * don't run multiple builds concurrently.
  */
-let buildQueue = Promise.resolve()
+let buildQueue = Promise.resolve<string>('')
 
 /**
  * What build this is
@@ -63,21 +54,10 @@ let I = new Instrumentation()
  * This does **not** imply that the CSS is actually built. That happens in the
  * `build` function and is a separate scheduled task.
  */
-async function createCompiler() {
+async function createCompiler(css: string) {
   I.start(`Create compiler`)
   I.start('Reading Stylesheets')
 
-  // The stylesheets may have changed causing a full rebuild so we'll need to
-  // gather the latest list of stylesheets.
-  let stylesheets: Iterable<HTMLStyleElement> = document.querySelectorAll(
-    `style[type="${STYLE_TYPE}"]`,
-  )
-
-  let css = ''
-  for (let sheet of stylesheets) {
-    observeSheet(sheet)
-    css += sheet.textContent + '\n'
-  }
 
   // The user might have no stylesheets, or a some stylesheets without `@import`
   // because they want to customize their theme so we'll inject the main import
@@ -180,7 +160,7 @@ async function loadModule(): Promise<never> {
   throw new Error(`The browser build does not support plugins or config files.`)
 }
 
-async function build(kind: 'full' | 'incremental') {
+async function build() {
   if (!compiler) return
 
   // 1. Refresh the known list of classes
@@ -201,100 +181,41 @@ async function build(kind: 'full' | 'incremental') {
     count: newClasses.size,
   })
 
-  if (newClasses.size === 0 && kind === 'incremental') return
-
   // 2. Compile the CSS
   I.start(`Build utilities`)
 
-  sheet.textContent = compiler.build(Array.from(newClasses))
+  const result = compiler.build(Array.from(newClasses))
 
   I.end(`Build utilities`)
+
+  return result;
 }
 
-function rebuild(kind: 'full' | 'incremental') {
+async function rebuild(css: string) {
   async function run() {
-    if (!compiler && kind !== 'full') {
-      return
-    }
 
     let buildId = nextBuildId++
 
-    I.start(`Build #${buildId} (${kind})`)
+    I.start(`Build #${buildId}`)
 
-    if (kind === 'full') {
-      await createCompiler()
-    }
+    await createCompiler(css)
+
 
     I.start(`Build`)
-    await build(kind)
+    const result = await build();
     I.end(`Build`)
 
-    I.end(`Build #${buildId} (${kind})`)
+    I.end(`Build #${buildId}`)
+
+    return result ?? '';
   }
 
-  buildQueue = buildQueue.then(run).catch((err) => I.error(err))
+  try {
+    buildQueue = buildQueue.then(run);
+    return await buildQueue;
+  } catch (error) {
+    I.error(error);
+  }
 }
+export const tailwindCompiler = rebuild;
 
-// Handle changes to known stylesheets
-let styleObserver = new MutationObserver(() => rebuild('full'))
-
-function observeSheet(sheet: HTMLStyleElement) {
-  styleObserver.observe(sheet, {
-    attributes: true,
-    attributeFilter: ['type'],
-    characterData: true,
-    subtree: true,
-    childList: true,
-  })
-}
-
-// Handle changes to the document that could affect the styles
-// - Changes to any element's class attribute
-// - New stylesheets being added to the page
-// - New elements (with classes) being added to the page
-new MutationObserver((records) => {
-  let full = 0
-  let incremental = 0
-
-  for (let record of records) {
-    // New stylesheets == tracking + full rebuild
-    for (let node of record.addedNodes as Iterable<HTMLElement>) {
-      if (node.nodeType !== Node.ELEMENT_NODE) continue
-      if (node.tagName !== 'STYLE') continue
-      if (node.getAttribute('type') !== STYLE_TYPE) continue
-
-      observeSheet(node as HTMLStyleElement)
-      full++
-    }
-
-    // New nodes require an incremental rebuild
-    for (let node of record.addedNodes) {
-      if (node.nodeType !== 1) continue
-
-      // Skip the output stylesheet itself to prevent loops
-      if (node === sheet) continue
-
-      incremental++
-    }
-
-    // Changes to class attributes require an incremental rebuild
-    if (record.type === 'attributes') {
-      incremental++
-    }
-  }
-
-  if (full > 0) {
-    return rebuild('full')
-  } else if (incremental > 0) {
-    return rebuild('incremental')
-  }
-}).observe(document.documentElement, {
-  attributes: true,
-  attributeFilter: ['class'],
-  childList: true,
-  subtree: true,
-})
-
-rebuild('full')
-
-document.head.append(sheet)

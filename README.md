@@ -1,3 +1,19 @@
+## Tailwind in browser
+changed the packages/@tailwindcss-browser project to use it as a library
+
+- clone it
+- add it in the package.js dependencies
+  
+  `"@tailwindcss-browser": "file:../../tailwindcss-browser/packages/@tailwindcss-browser"`
+- install
+
+  `pnpm install`
+- import
+
+  `import { tailwindCompiler } from "@tailwindcss-browser";`
+
+
+---
 <p align="center">
   <a href="https://tailwindcss.com" target="_blank">
     <picture>

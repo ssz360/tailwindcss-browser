@@ -16,29 +16,6 @@ console.warn(
  */
 let compiler: Awaited<ReturnType<typeof tailwindcss.compile>>
 
-/**
- * The list of all seen classes on the page so far. The compiler already has a
- * cache of classes but this lets us only pass new classes to `build(…)`.
- */
-let classes = new Set<string>()
-
-/**
- * The last input CSS that was compiled. If stylesheets "change" without
- * actually changing, we can avoid a full rebuild.
- */
-let lastCss = ''
-
-
-/**
- * The queue of build tasks that need to be run. This is used to ensure that we
- * don't run multiple builds concurrently.
- */
-let buildQueue = Promise.resolve<string>('')
-
-/**
- * What build this is
- */
-let nextBuildId = 1
 
 /**
  * Used for instrumenting the build process. This data shows up in the
@@ -54,28 +31,11 @@ let I = new Instrumentation()
  * This does **not** imply that the CSS is actually built. That happens in the
  * `build` function and is a separate scheduled task.
  */
-async function createCompiler(css: string) {
+async function createCompiler() {
   I.start(`Create compiler`)
   I.start('Reading Stylesheets')
 
-
-  // The user might have no stylesheets, or a some stylesheets without `@import`
-  // because they want to customize their theme so we'll inject the main import
-  // for them. However, if they start using `@import` we'll let them control
-  // the build completely.
-  if (!css.includes('@import')) {
-    css = `@import "tailwindcss";${css}`
-  }
-
-  I.end('Reading Stylesheets', {
-    size: css.length,
-    changed: lastCss !== css,
-  })
-
-  // The input CSS did not change so the compiler does not need to be recreated
-  if (lastCss === css) return
-
-  lastCss = css
+  const css = `@import "tailwindcss";`
 
   I.start('Compile CSS')
   try {
@@ -88,8 +48,6 @@ async function createCompiler(css: string) {
     I.end('Compile CSS')
     I.end(`Create compiler`)
   }
-
-  classes.clear()
 }
 
 async function loadStylesheet(id: string, base: string) {
@@ -160,59 +118,25 @@ async function loadModule(): Promise<never> {
   throw new Error(`The browser build does not support plugins or config files.`)
 }
 
-async function build() {
-  if (!compiler) return
 
-  // 1. Refresh the known list of classes
-  let newClasses = new Set<string>()
-
-  I.start(`Collect classes`)
-
-  for (let element of document.querySelectorAll('[class]')) {
-    for (let c of element.classList) {
-      if (classes.has(c)) continue
-
-      classes.add(c)
-      newClasses.add(c)
-    }
-  }
-
-  I.end(`Collect classes`, {
-    count: newClasses.size,
-  })
-
-  // 2. Compile the CSS
-  I.start(`Build utilities`)
-
-  const result = compiler.build(Array.from(newClasses))
-
-  I.end(`Build utilities`)
-
-  return result;
-}
-
-async function rebuild(css: string) {
+async function rebuild(classes: Set<string>) {
   async function run() {
 
-    let buildId = nextBuildId++
-
-    I.start(`Build #${buildId}`)
-
-    await createCompiler(css)
-
+    if (!compiler) {
+      await createCompiler()
+    }
 
     I.start(`Build`)
-    const result = await build();
+    const result = compiler.build(Array.from(classes))
     I.end(`Build`)
 
-    I.end(`Build #${buildId}`)
+    I.end(`Build`)
 
     return result ?? '';
   }
 
   try {
-    buildQueue = buildQueue.then(run);
-    return await buildQueue;
+    return await Promise.resolve().then(run);;
   } catch (error) {
     I.error(error);
   }
